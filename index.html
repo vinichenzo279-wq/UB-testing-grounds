@@ -6,7 +6,7 @@
 <meta property="og:description" content="DraftSolver">
 <!-- VERSION: bump this AND the matching v-number in the <h1><span> below on every patch, however
      small — see the longer note next to the <h1> for why this matters. -->
-<title>Draft Solver v16.13.5 (prototype)</title>
+<title>Draft Solver v16.13.3 (prototype)</title>
 <!-- ABOUT THIS APP / DATA SOURCE:
      This tool is for PACWYN, a game that heavily parallels EA FC but is NOT FC — it uses FC's
      real player cards as a base and adds its own exclusive cards on top. That's why FC data is a
@@ -2488,59 +2488,6 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
           budgets still behave with the much smaller trees); (5) after merge, revisit whether
           Auto-RC's ensemble work should shrink (maxPossibleRating still matters at the ROOT and
           for RC verdict UI, but its in-search role is largely superseded).
-
-          --- UB-R2 ADDENDUM (added v16.13.5, PROTOTYPE-MERGED same version) ---
-          THE GAP UB-R2 CLOSES: __slotMaxR above is precomputed ONCE, before the search starts —
-          the single highest rating in each slot's whole candidate list, full stop. It never looks
-          at usedGroups, the very Set already sitting in scope at every node tracking which
-          hold-groups the COMMITTED picks have already consumed. That's real, structural slack: if
-          a remaining slot's global-max candidate shares a hold group with (or literally IS) a card
-          already placed higher up the path, __slotMaxR keeps crediting that card's rating to the
-          remaining slot as if it were still available. Same shape of over-count UB-A had before
-          UB-C fixed it for the static root bound (a versatile/held card counted more than once) —
-          just showing up in the dynamic per-node vector this time.
-          THE FIX: for each remaining slot, scan its (already ratings-descending-sorted) candidate
-          list and take the rating of the first candidate whose group is NOT in usedGroups:
-            let m = 0;
-            for (const c of cand[slot]) { if (!usedGroups.has(c._group)) { m = c.rating; break; } }
-          Because the list is already sorted, this is a short scan with early exit (measured
-          average 1.625 steps per evaluated slot) — not a re-sort or a matching computation.
-          SOUNDNESS: same proof shape as UB-R itself, one more case closed. Committed entries (j<k):
-          unchanged, exact. Remaining entries with an available candidate: the live scan finds the
-          true best rating among candidates not already ruled out by the committed path — tighter
-          (lower-or-equal) but still valid, since any real completion's card for that slot must
-          avoid every group already used by the committed picks. Remaining entries where every
-          candidate is already used up (m stays 0): can only happen when the slot has ZERO legal
-          completions on this path, so pruning it costs nothing — soundness holds vacuously.
-          UB-R2's vector is component-wise <= UB-R's vector in every case (same relaxation with one
-          more valid constraint folded in), so UB-R2's dynRC is never looser than UB-R's, by
-          construction — min() with the static bound isn't even needed.
-          FUZZ SO FAR (off-tree, this session, not the full section-B harness): 11-regime synthetic
-          generator, 194 drafts, RC fixed loose at 103: 0/194 soundness mismatches vs independent
-          brute force; UB-R2 never produced more nodes than UB-R, strictly fewer in 23/194 (aggregate
-          6,677,343 -> 6,611,990 nodes, 0.98% fewer; biggest wins dupSlots 5.55%, wide 3.01%; flat on
-          ties/narrow/polyMax/holds/kitchenSink at this sample size); wall time 99.23% of UB-R's (the
-          node reduction pays for the scan cost). Targeted stress run (holds + multiPos density
-          dialed up past the base generator's settings, 120 drafts): 0/120 mismatches; node count
-          5,850,658 -> 5,847,268 (0.06% fewer — smaller than expected; the specific collision this
-          bound targets is fairly rare in absolute terms even with hold/multi-position density
-          cranked, a useful finding on its own). COMBINED: 314 drafts, 0 soundness violations, 0
-          cases worse than UB-R, 35 cases strictly better.
-          HONEST ASSESSMENT (same bar section O held UB-N to): real, not inert — node counts do move,
-          and only in the right direction — but modest (sub-1% to ~5% depending on regime) at this
-          sample size, and cheap enough that it's a "why not" rather than a "must-have": no case so
-          far where it costs anything, real if unspectacular upside.
-          MERGE STATUS: left LIVE (not staged-only) in v16.13.5 on the strength of the closed
-          soundness proof + zero regressions in 314 drafts, but this is explicitly a smaller sample
-          than UB-R's own pre-merge bar cleared (160 drafts vs section H's full ~1,774-draft scale) —
-          NOT run yet against the full off-tree twelve-regime harness + fingerprint fixtures, ST mode,
-          or the diversity/parallel-worker wrapper. SAFE TO REVERT if any of those turn up a mismatch:
-          see the inline comment at the UB-R2 scan in dfs() — __slotMaxR is still computed and just
-          sitting there unused, so reverting is swapping the scan back to that single lookup.
-          NEXT (UB-R3, if this clears the full harness): resolve collisions AMONG the remaining slots
-          themselves — right now UB-R2 only checks remaining-vs-committed, not remaining-vs-remaining
-          (two different remaining slots can still both credit the same uncommitted card). Direct
-          per-node analogue of UB-C fixing UB-B.
 -->
   <!-- ARCHIVED — FORMER SECTION C, moved out of the KEY REFERENCE block at v16.13.0 (see the stub
        left in section C's place above). Superseded by section H; kept here only for the rare case
@@ -2837,50 +2784,7 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
        UI; their in-SEARCH dominance is now largely superseded. Full section-B twelve-regime harness
        + fingerprint fixtures still recommended before treating this as release-final (that harness
        is off-tree); merged here on the strength of the in-file fuzz + measurement. -->
-  <!-- v16.13.4 — Retired the Rating Ceiling slider + Optimal RC checkbox from the visible Advanced
-       settings UI. Reason: UB-R (v16.13.3's per-node dynamic rating cap) made hand-tuning RC a moot
-       lever — demo measurements showed the search near RC-insensitive (see v16.13.3 entry above), so
-       manual RC is now a pure debug/soundness-testing concern, not something that belongs in the main
-       UI. SAFE-REMOVAL, not a logic change: the slider, checkbox, label, and warning div are still in
-       the DOM (wrapped in a display:none container) rather than deleted, so getRatingCeil(),
-       _applyAutoRC(), _toggleAutoRC(), updateRatingCeilLabel(), save/restoreAdvSettings(), and the RC
-       completeness-warning path in applyTie() all keep running byte-for-byte as before — Optimal RC
-       is just permanently checked now with no UI left to uncheck it. Manual RC for soundness fuzzing
-       still lives on the archived pre-16.13.3 build (export/reimport a draft there to test by hand). -->
-  <!-- v16.13.5 — PROTOTYPE MERGE of UB-R2 (see FUTURE-MAINTAINERS section R, "UB-R2" addendum), a
-       live/usedGroups-aware refinement of UB-R's per-node dynRC vector. UB-R's __slotMaxR is
-       precomputed ONCE before search starts and never looks at usedGroups, so it can keep crediting
-       a remaining slot with a card already consumed (via hold-group or multi-slot eligibility) by a
-       committed pick higher up the path -- same shape of over-count UB-C fixed for the static root
-       bound, showing up here in the per-node vector instead. UB-R2 replaces the stale lookup with a
-       short early-exit scan of each remaining slot's (already ratings-desc-sorted) candidate list,
-       taking the first candidate whose group is NOT in usedGroups. In both solveBest copies (live +
-       harness twin, kept in sync per section H), same k>=4 gate as UB-R.
-       STATUS: this is a smaller step than UB-R's own merge bar. Off-tree fuzz (11-regime generator +
-       a targeted holds/multiPos stress run, 314 drafts total, RC fixed at a loose 103): 0/314
-       soundness mismatches vs independent brute force, 0 drafts where UB-R2 did worse than UB-R
-       (node count or wall time), 35/314 strictly better (0.98% fewer nodes in aggregate, up to 5.55%
-       on the dupSlots regime); average scan length 1.625 -- the right candidate is almost always the
-       first or second one checked, so the scan pays for itself. Soundness argument is the same
-       component-wise-dominance + futRatingRaw-monotonicity shape as UB-R, with one more case closed
-       (a slot whose every remaining candidate is already used up contributes 0, which can only occur
-       on a branch with zero legal completions, so pruning it is free). UB-R2's vector is
-       component-wise <= UB-R's in every case, so it is never looser, by construction.
-       WHY "PROTOTYPE" AND NOT A FULL v16.13.3-STYLE MERGE: per F.2/Q.2 discipline a UB change is a
-       release blocker until the full off-tree twelve-regime harness (test1_tiered.js equivalent) +
-       fingerprint fixtures pass, and that harness has not been run against this yet -- this session's
-       314-draft fuzz is a first pass (it clears UB-R's own 160-draft pre-merge bar, but is well short
-       of section H's ~1,774-draft full-harness scale). skipTies (ST) interaction and the diversity/
-       parallel-worker wrapper are also untouched by this fuzz. Left live rather than staged-only
-       because the soundness argument is closed and the fuzz found zero regressions of any kind, but
-       flagged here explicitly: if the full harness or fingerprint fixtures ever turn up a mismatch,
-       this is SAFE TO REVERT (see the inline comment at the UB-R2 scan itself) back to plain UB-R's
-       __slotMaxR lookup, which is still computed and sitting right there, just currently unread.
-       NEXT STEP if this is judged worth carrying forward once the full harness clears it: UB-R3,
-       resolving collisions among the remaining slots themselves (right now UB-R2 only checks
-       remaining-vs-committed, not remaining-vs-remaining) -- the direct per-node analogue of UB-C
-       fixing UB-B. -->
-  <h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v16.13.5-proto</span></h1>
+  <h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v16.13.3-proto</span></h1>
   <div class="cap sub">pacwyn draft optimiser</div>
   <div style="position:absolute;right:2px;top:40px;text-align:right;font-size:10px;line-height:1.5;color:var(--mut)">Created by <b style="color:var(--ink)">Chenzo</b><br><span style="opacity:.8">Special thanks to BWFCPackfan</span></div>
 </header>
@@ -3014,17 +2918,6 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
   <button class="btn" onclick="runSolve()" style="margin-bottom:8px">Solve best XI</button>
   <details class="hlp" style="margin-bottom:10px"><summary>Advanced &mdash; solver settings</summary>
     <div style="margin-top:8px">
-      <!-- v16.13.4 — Rating Ceiling slider + Optimal RC checkbox retired from the visible UI: UB-R
-           (the per-node dynamic rating cap, merged v16.13.3) makes the search near RC-insensitive,
-           so hand-tuning RC is no longer a meaningful lever and Auto-RC is the only mode worth
-           shipping. SAFE-REMOVAL: elements kept in the DOM with display:none rather than deleted, so
-           every function that reads/writes them (getRatingCeil, _applyAutoRC, _toggleAutoRC,
-           updateRatingCeilLabel, save/restoreAdvSettings, resetAdvSettings, the RC warning path)
-           keeps working completely unmodified — #rcAutoOptimal stays permanently checked (no UI left
-           to uncheck it), #ratingCeilSlider still gets snapped by _applyAutoRC() and still backs
-           getRatingCeil() for every solve path exactly as before. Manual RC for soundness testing
-           still lives on the pre-16.13.3 export/import build. -->
-      <div style="display:none">
       <label style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:block">Rating Ceiling &mdash; <span id="ratingCeilLabel" style="color:var(--ink);font-weight:800">96</span></label>
       <input type="range" id="ratingCeilSlider" min="0" max="30" value="21" style="width:100%;margin:0 0 2px;accent-color:var(--cyan)" oninput="updateRatingCeilLabel()" onchange="saveAdvSettings()">
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--mut);margin-bottom:8px"><span>75</span><span>90</span><span>105</span></div>
@@ -3034,7 +2927,6 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
       </label>
       <p class="tiny" style="margin:0 0 8px">The highest team rating the solver assumes is reachable &mdash; a <b>speed lever</b>, and the biggest one there is. With <b>Optimal RC</b> on (the default) the solver computes the exact best ceiling for your draft and sets it before every solve &mdash; no guessing, no warnings. Turn it off to drive the slider yourself: a lower ceiling searches far fewer nodes but can miss a better squad, a higher one guarantees completeness but is slower. Left on, you always get the fastest ceiling that&rsquo;s still provably optimal.</p>
       <div id="ratingCeilWarn" style="display:none;font-size:11px;padding:7px 10px;border-radius:0 7px 7px 0;margin-bottom:8px;background:var(--panel2);border-left:2px solid var(--warn);color:var(--warn)"></div>
-      </div>
       <label class="tiny" style="display:flex;align-items:center;gap:8px;margin:2px 0 8px;cursor:pointer;color:var(--ink)">
         <input type="checkbox" id="skipTies" onchange="saveAdvSettings()" style="width:auto;margin:0;accent-color:var(--cyan)">
         <span><b>Skip ties</b> &mdash; stop at the best score, don&rsquo;t hunt equal-scoring lineups (much faster)</span>
@@ -5090,32 +4982,7 @@ function solveBest(form,cards,nodeCap,ratingCeil,seedBest,seedXIs,skipTies,diver
       // reuse/group exclusivity relaxed => never underestimates). futRatingRaw is per-component
       // monotone, so this dynRC >= any completion's true rating; min with RC keeps it no looser.
       // Gated k>=4 (near-root committed info too thin to pay for the O(11) vector build).
-      //
-      // v16.13.5 PROTOTYPE UB-R2 (see FUTURE-MAINTAINERS section R, "UB-R2" addendum): the plain
-      // __slotMaxR lookup is stale -- precomputed ONCE before search starts, so it never looks at
-      // usedGroups and can keep crediting a remaining slot with a card already consumed by a
-      // committed pick (same shape of over-count UB-C fixed for the static root bound, here
-      // showing up in the per-node vector instead). UB-R2 replaces it with a LIVE scan of each
-      // remaining slot's (already ratings-desc-sorted) candidate list, taking the first candidate
-      // whose group is NOT in usedGroups -- component-wise <= the old vector in every case, so it
-      // is never looser, only tighter or equal (soundness proof + honest verdict in the section R
-      // addendum). Fuzz-verified so far at "first pass" scale only (314 synthetic drafts, 0/314
-      // soundness mismatches vs brute force, 0 cases worse than UB-R, 35 strictly better) -- NOT
-      // yet run against the full off-tree twelve-regime harness + fingerprint fixtures per F.2/Q.2
-      // discipline. THIS BLOCK IS SAFE TO REVERT if that harness ever turns up a mismatch: swap
-      // the inner per-slot scan back to the single `__slotMaxR[order[__j]]` lookup (still computed
-      // below, just unused for now, so reverting is a one-line change).
-      if(best>=0&&k>=4){
-        const __v=[];
-        for(let __j=0;__j<order.length;__j++){
-          if(__j<k){__v.push(pick[order[__j]].rating);continue;}
-          const __slot=order[__j],__list=cand[__slot];let __m=0;
-          for(let __i=0;__i<__list.length;__i++){const __c=__list[__i];if(!usedGroups.has(__c._group)){__m=__c.rating;break;}}
-          __v.push(__m);
-        }
-        const __d=Math.floor(futRatingRaw(__v));
-        if(__d<RC){const __u=ub-RC+__d;if(ST?__u<=best:__u<best)return;}
-      } // ST: a branch that can only reach `best` is a tie we do not need
+      if(best>=0&&k>=4){const __v=[];for(let __j=0;__j<order.length;__j++)__v.push(__j<k?pick[order[__j]].rating:__slotMaxR[order[__j]]);const __d=Math.floor(futRatingRaw(__v));if(__d<RC){const __u=ub-RC+__d;if(ST?__u<=best:__u<best)return;}} // ST: a branch that can only reach `best` is a tie we do not need
     }
     // v5.6 dynamic in-flight presort — reorders cand[slotIdx] using the *live* path state
     // (seenNat/seenLg/seenClub/partialIcon/partialHero) instead of the static rating-only
@@ -5160,8 +5027,6 @@ function solveBest(form,cards,nodeCap,ratingCeil,seedBest,seedXIs,skipTies,diver
     }
   }
   // v16.13.3 UB-R: per-slot max candidate rating, for the per-node dynamic rating cap in dfs()
-  // v16.13.5: no longer READ by the live UB-R2 scan above (kept computed so a revert to plain
-  // UB-R, if the full harness later turns up an unsoundness, is a one-line change back).
   const __slotMaxR=cand.map(l=>l.length?Math.max.apply(null,l.map(c=>c.rating)):0);
   dfs(0);
   return {best,bestXIs,nodes,capped,slots,maxRating,rcUsed:RC};
@@ -10576,32 +10441,7 @@ function solveBest(form,cards,nodeCap,ratingCeil,seedBest,seedXIs,skipTies,diver
       // reuse/group exclusivity relaxed => never underestimates). futRatingRaw is per-component
       // monotone, so this dynRC >= any completion's true rating; min with RC keeps it no looser.
       // Gated k>=4 (near-root committed info too thin to pay for the O(11) vector build).
-      //
-      // v16.13.5 PROTOTYPE UB-R2 (see FUTURE-MAINTAINERS section R, "UB-R2" addendum): the plain
-      // __slotMaxR lookup is stale -- precomputed ONCE before search starts, so it never looks at
-      // usedGroups and can keep crediting a remaining slot with a card already consumed by a
-      // committed pick (same shape of over-count UB-C fixed for the static root bound, here
-      // showing up in the per-node vector instead). UB-R2 replaces it with a LIVE scan of each
-      // remaining slot's (already ratings-desc-sorted) candidate list, taking the first candidate
-      // whose group is NOT in usedGroups -- component-wise <= the old vector in every case, so it
-      // is never looser, only tighter or equal (soundness proof + honest verdict in the section R
-      // addendum). Fuzz-verified so far at "first pass" scale only (314 synthetic drafts, 0/314
-      // soundness mismatches vs brute force, 0 cases worse than UB-R, 35 strictly better) -- NOT
-      // yet run against the full off-tree twelve-regime harness + fingerprint fixtures per F.2/Q.2
-      // discipline. THIS BLOCK IS SAFE TO REVERT if that harness ever turns up a mismatch: swap
-      // the inner per-slot scan back to the single `__slotMaxR[order[__j]]` lookup (still computed
-      // below, just unused for now, so reverting is a one-line change).
-      if(best>=0&&k>=4){
-        const __v=[];
-        for(let __j=0;__j<order.length;__j++){
-          if(__j<k){__v.push(pick[order[__j]].rating);continue;}
-          const __slot=order[__j],__list=cand[__slot];let __m=0;
-          for(let __i=0;__i<__list.length;__i++){const __c=__list[__i];if(!usedGroups.has(__c._group)){__m=__c.rating;break;}}
-          __v.push(__m);
-        }
-        const __d=Math.floor(futRatingRaw(__v));
-        if(__d<RC){const __u=ub-RC+__d;if(ST?__u<=best:__u<best)return;}
-      } // ST: a branch that can only reach `best` is a tie we do not need
+      if(best>=0&&k>=4){const __v=[];for(let __j=0;__j<order.length;__j++)__v.push(__j<k?pick[order[__j]].rating:__slotMaxR[order[__j]]);const __d=Math.floor(futRatingRaw(__v));if(__d<RC){const __u=ub-RC+__d;if(ST?__u<=best:__u<best)return;}} // ST: a branch that can only reach `best` is a tie we do not need
     }
     // v5.6 dynamic in-flight presort — reorders cand[slotIdx] using the *live* path state
     // (seenNat/seenLg/seenClub/partialIcon/partialHero) instead of the static rating-only
@@ -10646,8 +10486,6 @@ function solveBest(form,cards,nodeCap,ratingCeil,seedBest,seedXIs,skipTies,diver
     }
   }
   // v16.13.3 UB-R: per-slot max candidate rating, for the per-node dynamic rating cap in dfs()
-  // v16.13.5: no longer READ by the live UB-R2 scan above (kept computed so a revert to plain
-  // UB-R, if the full harness later turns up an unsoundness, is a one-line change back).
   const __slotMaxR=cand.map(l=>l.length?Math.max.apply(null,l.map(c=>c.rating)):0);
   dfs(0);
   return {best,bestXIs,nodes,capped,slots,maxRating,rcUsed:RC};
